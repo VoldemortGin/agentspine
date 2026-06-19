@@ -1,0 +1,98 @@
+"""agent 缝:Agent 协议 + 最小默认实现(单步执行)。
+
+家族缝的元模式:Protocol + 离线确定性默认 + 隐私安全 trace。Agent 是 agentspine 最小
+的执行单元——给一个任务,跑【一步】拿回结果。两个默认实现都离线可跑、零网络:
+
+  - LlmAgent —— 用一个 corespine LLMProvider 跑单步(离线用 MockProvider,确定性、可复现);
+  - FunctionAgent —— 把一个纯函数 (task->text) 包成 Agent(无需 LLM,做测试/编排的轻量节点)。
+
+隐私约定:step 可选接收一个 corespine TraceSink,实现只允许往里记【元数据】(agent 名、
+长度、token 数),【绝不】记任务/输出正文——由 InProcessPrivacyTraceSink「构造即保证」,
+本包再用 conformance 把这条不变量绑死(见 agentspine/conformance.py)。
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+from corespine.llm.provider import LLMProvider
+from corespine.observability.trace import TraceSink
+
+
+@dataclass(frozen=True)
+class AgentResult:
+    """一次 agent 步的结果:产出文本 + 来源 agent 名(provenance)+ 可选 token 用量。"""
+
+    agent: str
+    output: str
+    usage: dict[str, int] | None = None
+
+
+@runtime_checkable
+class Agent(Protocol):
+    """agent 协议:有名字;给一个任务,跑【一步】拿回结果。
+
+    step 可选接收一个 TraceSink:实现只允许往里记元数据(code/计数/耗时),绝不记任务/
+    输出正文——隐私 by construction,由 corespine 的 InProcessPrivacyTraceSink 兜底。
+    """
+
+    name: str
+
+    def step(self, task: str, *, trace: TraceSink | None = None) -> AgentResult: ...
+
+
+class LlmAgent:
+    """最小默认 agent:用一个 corespine LLMProvider 跑单步(离线用 MockProvider)。"""
+
+    def __init__(self, name: str, provider: LLMProvider, *, system: str = "") -> None:
+        self._name = name
+        self._provider = provider
+        self._system = system
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def step(self, task: str, *, trace: TraceSink | None = None) -> AgentResult:
+        completion = self._provider.complete(task, system=self._system)
+        result = AgentResult(
+            agent=self._name, output=completion.text, usage=completion.usage
+        )
+        _emit_step(trace, self._name, task, result)
+        return result
+
+
+class FunctionAgent:
+    """最小确定性 agent:把一个纯函数 (task->text) 包成 Agent(离线/测试/编排用,无需 LLM)。"""
+
+    def __init__(self, name: str, fn: Callable[[str], str]) -> None:
+        self._name = name
+        self._fn = fn
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def step(self, task: str, *, trace: TraceSink | None = None) -> AgentResult:
+        result = AgentResult(agent=self._name, output=self._fn(task))
+        _emit_step(trace, self._name, task, result)
+        return result
+
+
+def _emit_step(
+    trace: TraceSink | None, name: str, task: str, result: AgentResult
+) -> None:
+    """记一条隐私安全的步级 trace:只记 agent 名 + 长度 + token 数,绝不记正文。"""
+    if trace is None:
+        return
+    usage = result.usage or {}
+    trace.emit(
+        "agent_step",
+        agent=name,
+        task_chars=len(task),
+        output_chars=len(result.output),
+        input_tokens=usage.get("input_tokens", 0),
+        output_tokens=usage.get("output_tokens", 0),
+    )

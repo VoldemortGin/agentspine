@@ -34,7 +34,7 @@ classifiers = [
 dependencies = ["corespine"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
+dev = ["pytest>=8.0.0", "ruff>=0.9.0"]
 # 协议真实后端的占位 extra:仅在显式选用时安装,默认离线路径永不触碰。
 mcp = ["mcp"]
 a2a = ["a2a-sdk"]
@@ -49,3 +49,13 @@ packages = ["src/agentspine"]
 # 本地开发把 corespine 指向同家族目录里的源码(可编辑);发布层面二者各自独立发版。
 [tool.uv.sources]
 corespine = { path = "../corespine", editable = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# src 布局:把 src/ 标为第一方根,isort(I 规则)才能把 `import agentspine` 正确归到一方分组。
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["E501"]  # 行宽不作硬门槛(中文注释易超 100 列);其余风格 / import 序 / 死代码照常 gate。

@@ -8,7 +8,6 @@
 """
 
 import pytest
-
 from corespine.conformance.harness import ConformanceSuite
 from corespine.llm.provider import MockProvider
 

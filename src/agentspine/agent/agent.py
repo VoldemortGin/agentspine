@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from corespine.llm.provider import LLMProvider
+from corespine.llm.provider import LLMProvider, Message
 from corespine.observability.trace import TraceSink
 
 
@@ -67,7 +67,10 @@ class LlmAgent:
         return self._name
 
     def step(self, task: str, *, trace: TraceSink | None = None) -> AgentResult:
-        completion = self._provider.complete(task, system=self._system)
+        messages = [Message(role="user", content=task)]
+        if self._system:
+            messages.insert(0, Message(role="system", content=self._system))
+        completion = self._provider.chat(messages)
         result = AgentResult(
             agent=self._name, output=completion.text, usage=completion.usage
         )

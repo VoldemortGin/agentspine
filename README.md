@@ -20,7 +20,9 @@ observability / config 形状;**默认路径离线可跑、import-clean、零网
 | `agent/agent.py` | `Agent` 协议 + `LlmAgent`(走 corespine `LLMProvider`,离线用 `MockProvider`)/ `FunctionAgent`(纯函数节点);步级 trace 只记元数据 |
 | `llm/provider.py` 等 | 真实 LLM provider 适配器(挂在 corespine `LLMProvider` 缝后面;**对外统一 OpenAI chat-completions 形状**):`OpenAICompatProvider`(`openai` SDK + `base_url`,一个吃下 OpenAI/Azure/Together/Groq/DeepSeek/Mistral/xAI/Qwen/Moonshot/Ollama/vLLM/OpenRouter/LiteLLM… 全部 OpenAI 兼容端点)+ 非 OpenAI 原生适配器把 native 转成 OpenAI 形状:`AnthropicProvider`(默认 `claude-opus-4-8`)/ `CohereProvider` / `GeminiProvider` / `BedrockConverseProvider`。`llm_providers` Registry(mock/openai/anthropic/cohere/gemini/bedrock)。各走可选 extra 延迟 import,离线默认仍是 `MockProvider`,各用原生 SDK 不 shim |
 | `agent/policy.py` | `ToolPolicy` 协议 + 离线确定性默认 `SyntaxToolPolicy`(按 `<tool>: <arg>` 语法 + 工具名集合确定性路由,**不假装 LLM 推理**)+ `tool_policies` Registry(`llm` 位留真实推理式接入) |
-| `agent/tool_using.py` | `ToolUsingAgent`:在单次 `step()` 内跑「决策→调工具→把观测喂回(`$prev` 链式)→再决策」的多步循环,带 `max_steps` 守卫;实现 `Agent` 协议故可直接进 `Coordinator` |
+| `agent/tool_using.py` | `ToolUsingAgent`:**离线确定性**多步循环(`SyntaxToolPolicy` 按 `<tool>: <arg>` 语法路由),带 `max_steps` 守卫;实现 `Agent` 协议 |
+| `agent/function_calling.py` | `FunctionCallingAgent`:**真 LLM function-calling** 多步循环——把 `FunctionTool` schema 喂给 `chat(tools=)`,模型回 tool_calls → 执行 → 以 OpenAI tool 角色喂回 → 再 chat,直到出文本或触顶;底层换任意 provider 不改一行。实现 `Agent` 协议 |
+| `tools/function_tool.py` | `FunctionTool`(带 JSON-schema、接 dict 参数的结构化工具)+ `@function_tool` 装饰器(从签名/注解/docstring 自动推 schema) |
 | `agent/as_tool.py` | `AgentTool`:把一个 `Agent` 桥成 `Tool`,让督导 agent 通过工具调用把子任务派给专精子 agent(**分层 / 督导式多 agent**,可层层嵌套) |
 | `tools/tool.py` | `Tool` 协议 + `EchoTool` / `CalcTool`(安全算术求值);结果带 provenance。`tool_registry`:spec 选工具 + **entry-point 第三方工具自动发现**(group `corespine.tool`)。**运行时可把 ragspine RAG 插为一个 Tool**(见下) |
 | `orchestration/coordinator.py` | `Coordinator`:把多个 agent **顺序 / 并行 / 流水线**(output→input 链式)跑、保序收集 `AgentResult`;**弹性容错**(`resilient=True`)把单 agent 异常归一为家族错误 dict 塞进 `AgentResult.error`、一个坏 agent 不炸整批 |

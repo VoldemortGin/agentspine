@@ -15,7 +15,14 @@
 
 from __future__ import annotations
 
-from corespine.llm.provider import MockProvider
+from corespine.llm.provider import (
+    ChatCompletion,
+    Choice,
+    FunctionCall,
+    MockProvider,
+    ResponseMessage,
+)
+from corespine.llm.provider import ToolCall as LlmToolCall
 from corespine.observability.trace import InProcessPrivacyTraceSink
 
 from agentspine import (
@@ -25,13 +32,48 @@ from agentspine import (
     ChainAgent,
     Coordinator,
     FunctionAgent,
+    FunctionCallingAgent,
     LlmAgent,
     McpClientTool,
     McpTool,
     OfflineMcpStub,
     SyntaxToolPolicy,
     ToolUsingAgent,
+    function_tool,
 )
+
+
+@function_tool
+def _add(a: int, b: int) -> int:
+    """两个整数相加。"""
+    return a + b
+
+
+class _ScriptedModel:
+    """离线确定性「模型」:第 1 轮要调 add(2,3),第 2 轮出最终文本——用来无网络演示 function-calling。"""
+
+    def __init__(self) -> None:
+        self._turns = iter(
+            [
+                ChatCompletion(
+                    choices=(
+                        Choice(
+                            0,
+                            ResponseMessage(
+                                "assistant",
+                                None,
+                                (LlmToolCall("c1", FunctionCall("_add", '{"a": 2, "b": 3}')),),
+                            ),
+                            "tool_calls",
+                        ),
+                    )
+                ),
+                ChatCompletion(choices=(Choice(0, ResponseMessage("assistant", "答案是 5")),)),
+            ]
+        )
+
+    def chat(self, messages, *, tools=None):  # noqa: ARG002 — 演示用,忽略入参
+        return next(self._turns)
 
 # 一段含敏感正文的任务:它绝不该出现在任何 trace 里(隐私不变量,文末自检)。
 _TASK = "为发布写一个三步上线计划:机密代号 42"
@@ -85,6 +127,11 @@ def main() -> None:
     solver = ToolUsingAgent("solver", SyntaxToolPolicy(), [CalcTool()])
     solved = solver.step("calc: 2 + 3\ncalc: $prev * 2", trace=tool_trace)
     print(f"  agent={solved.agent} output={solved.output!r}(2+3=5,再 *2=10)")
+
+    # 真 function-calling agent:真 LLM 自己决定调工具(这里用脚本化「模型」离线确定性演示循环)。
+    print("== 真 function-calling agent(LLM 决定调工具 → 执行 → 喂回 → 出答案)==")
+    fc = FunctionCallingAgent("solver", _ScriptedModel(), [_add])
+    print(f"  output={fc.step('2+3 等于几?').output!r}(模型调了 _add(2,3) 拿到 5 后作答)")
 
     # 跨缝组合:把一个 MCP 工具桥成 Tool,交给会用工具的 agent 在循环里驱动(零网络,进程内回环)。
     print("== 跨缝组合(MCP 工具 → Tool → 会用工具的 agent)==")

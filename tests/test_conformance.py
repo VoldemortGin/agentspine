@@ -2,7 +2,7 @@
 
 机制由 corespine.ConformanceSuite 提供(实现 × 不变量 笛卡尔积);保证由 agentspine 绑定
 (ADR 0001 D6)。这里把三类实现各喂进自己的不变量包:
-  - 5 个 agent 实现(llm / function / tool_using / a2a_adapter / chain)× 3 条 agent 不变量;
+  - 6 个 agent 实现(llm / function / tool_using / a2a_adapter / chain / function_calling)× 3 条 agent 不变量;
   - 4 个 tool 实现(echo / calc / mcp_client_tool / agent_tool)× 2 条 tool 不变量;
   - 1 个 policy 实现(syntax)× 4 条 tool-policy 不变量。
 跨原语适配器(McpClientTool / A2AAgentAdapter / AgentTool)与 ToolUsingAgent 都【复用既有不变量
@@ -16,6 +16,7 @@ from corespine.llm.provider import MockProvider
 
 from agentspine.agent.agent import AgentResult, FunctionAgent, LlmAgent
 from agentspine.agent.as_tool import AgentTool
+from agentspine.agent.function_calling import FunctionCallingAgent
 from agentspine.agent.policy import SyntaxToolPolicy
 from agentspine.agent.tool_using import ToolUsingAgent
 from agentspine.conformance import AGENT_INVARIANTS, POLICY_INVARIANTS, TOOL_INVARIANTS
@@ -39,6 +40,7 @@ AGENT_SUITE = ConformanceSuite(
         "tool_using": lambda: ToolUsingAgent("tool_using", SyntaxToolPolicy(), [CalcTool()]),
         "a2a_adapter": lambda: A2AAgentAdapter(OfflineA2AStub()),
         "chain": lambda: ChainAgent("chain", [FunctionAgent("a", lambda t: f"a:{t}")]),
+        "function_calling": lambda: FunctionCallingAgent("fc", MockProvider(), []),
     },
     AGENT_INVARIANTS,
 )
@@ -58,7 +60,7 @@ POLICY_SUITE = ConformanceSuite({"syntax": SyntaxToolPolicy}, POLICY_INVARIANTS)
 
 @pytest.mark.parametrize(**AGENT_SUITE.parametrize_kwargs())
 def test_agent_conformance(case):
-    """每个 agent 实现 × 每条 agent 不变量 各跑一格(5 × 3 = 15 格全绿)。"""
+    """每个 agent 实现 × 每条 agent 不变量 各跑一格(6 × 3 = 18 格全绿)。"""
     case()
 
 

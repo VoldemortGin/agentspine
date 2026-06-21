@@ -10,6 +10,7 @@ agent / tool / 编排 + MCP / A2A 协议缝。复用 corespine 的缝元模式(P
 
 from agentspine.agent.agent import Agent, AgentResult, FunctionAgent, LlmAgent
 from agentspine.agent.as_tool import AgentTool
+from agentspine.agent.function_calling import FunctionCallingAgent
 from agentspine.agent.policy import (
     Action,
     Finish,
@@ -51,6 +52,7 @@ from agentspine.protocol.mcp.seam import (
     load_mcp_sdk,
     mcp_clients,
 )
+from agentspine.tools.function_tool import FunctionTool, function_tool
 from agentspine.tools.tool import CalcTool, EchoTool, Tool, ToolResult, tool_registry
 
 __version__ = "0.0.1"
@@ -63,6 +65,7 @@ __all__ = [
     "FunctionAgent",
     "ToolUsingAgent",
     "AgentTool",
+    "FunctionCallingAgent",
     # tool-policy 缝(会用工具的 agent 的「大脑」)
     "ToolPolicy",
     "ToolCall",
@@ -77,6 +80,8 @@ __all__ = [
     "EchoTool",
     "CalcTool",
     "tool_registry",
+    "FunctionTool",
+    "function_tool",
     # orchestration
     "Coordinator",
     "ChainAgent",

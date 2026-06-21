@@ -126,7 +126,11 @@ def test_gemini_text_maps_to_openai_shape():
 
 
 def test_gemini_function_call_maps_with_synthesized_id_and_json_args():
-    result = GeminiProvider(client=_FakeGemini(with_tool=True)).chat([{"role": "user", "content": "算"}], tools=[_OPENAI_TOOL])
+    fake = _FakeGemini(with_tool=True)
+    result = GeminiProvider(client=fake).chat([{"role": "user", "content": "算"}], tools=[_OPENAI_TOOL])
+    # 工具转成 Gemini function_declarations,且用 parameters_json_schema(标准 JSON Schema),非 parameters
+    decl = fake.last.config["tools"][0]["function_declarations"][0]
+    assert decl["name"] == "calc" and "parameters_json_schema" in decl and "parameters" not in decl
     choice = result.choices[0]
     assert choice.finish_reason == "tool_calls"  # 有 function_call → tool_calls
     assert choice.message.content is None

@@ -116,12 +116,16 @@ def _gemini_usage(meta: Any) -> Usage | None:
 
 
 def _openai_tool_to_gemini(tool: dict[str, Any]) -> dict[str, Any]:
-    """OpenAI function-tool → Gemini function_declaration(name/description/parameters)。"""
+    """OpenAI function-tool → Gemini FunctionDeclaration。
+
+    注:用 parameters_json_schema(承载标准 JSON Schema,与 OpenAI tool 的 parameters 同源)而非
+    FunctionDeclaration.parameters(后者是 Gemini 自家 Schema 类型,不是 JSON Schema)。
+    """
     fn = tool.get("function", tool)
     return {
         "name": fn["name"],
         "description": fn.get("description", ""),
-        "parameters": fn.get("parameters", {"type": "object", "properties": {}}),
+        "parameters_json_schema": fn.get("parameters", {"type": "object", "properties": {}}),
     }
 
 

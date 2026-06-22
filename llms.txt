@@ -1,0 +1,54 @@
+# spineagent
+
+> Spine 家族的通用多 agent 协作框架:agent / tool / 编排(Coordinator + Chain)+ MCP / A2A
+> 协议缝 + 统一 LLM provider 适配层。**离线优先**:默认路径零网络、零重依赖、确定性可复现;
+> 真实 LLM / 协议后端经可选 extra 延迟 import。依赖薄核 `corespine`(消费其缝),**不**含任何
+> RAG 概念。
+
+- pip 安装名:`spineagent`(真实后端选装 extra,见下)
+- import 名:`import spineagent`
+- Python:>= 3.10
+- 依赖:`corespine`(唯一运行时依赖;spineagent 复用其 `LLMProvider` 缝、`TraceSink`
+  隐私 observability、`Registry` 缝工厂、`SeamError` / `error_to_dict` 错误形状)
+
+## 这份文档怎么读
+
+本文件是给 LLM / agent 的精简索引。详细内容在 `docs/llms/`(随 wheel 一起装入
+`site-packages/spineagent/_llms/`,装后可离线读):
+
+- `docs/llms/overview.md` — 是什么、解决什么、核心概念(Agent / Tool / 编排 / 协议缝 / LLM 适配器)、与 corespine 的关系
+- `docs/llms/api.md` — 完整公开 API:每个导出的真实签名 + 契约 + 一句话,按 agent / tool / orchestration / protocol / llm 分节
+- `docs/llms/recipes.md` — 可运行最小示例(离线优先,用 `MockProvider`):建并跑 agent、工具循环、顺序/并行/流水线编排、装真实 LLM 后端怎么接
+- `docs/llms/gotchas.md` — 陷阱:provider 输出是 OpenAI ChatCompletion 形状、真实后端要装对应 extra、离线默认 MockProvider、`SeamError` 表示缝未接入
+
+## 心智模型(一句话)
+
+- **Agent**:最小执行单元——`step(task) -> AgentResult`。`LlmAgent`(走一个 corespine `LLMProvider`)/ `FunctionAgent`(纯函数节点)/ `ToolUsingAgent`(离线确定性工具循环)/ `FunctionCallingAgent`(真 LLM 原生 function-calling)。
+- **Tool**:`run(arg: str) -> ToolResult`。`EchoTool` / `CalcTool` + `@function_tool`(给真 function-calling 用的带 schema 工具)。
+- **编排**:`Coordinator`(顺序 / 并行 / 流水线 + 弹性容错)、`ChainAgent`(把一串 agent 串成单个 Agent)。
+- **跨缝桥接三角**:`AgentTool`(Agent→Tool,督导式多 agent)、`McpClientTool`(MCP 工具→Tool)、`A2AAgentAdapter`(A2A agent→Agent)。
+- **协议缝**:MCP(`OfflineMcpStub`)、A2A(`OfflineA2AStub`),离线进程内回环默认,真实 SDK 经 `[mcp]` / `[a2a]` extra。
+- **LLM 适配器**:挂在 corespine `LLMProvider` 缝后面,**输出统一 OpenAI ChatCompletion 形状**。离线默认 `corespine.MockProvider`;真实后端 `OpenAICompatProvider` / `AnthropicProvider` / `CohereProvider` / `GeminiProvider` / `BedrockConverseProvider`,各走 `[openai]` / `[anthropic]` / `[cohere]` / `[gemini]` / `[bedrock]` extra(`[all]` 装齐)。
+
+## 30 秒 hello-world(离线,零网络)
+
+```python
+from corespine import MockProvider
+from spineagent import LlmAgent, FunctionAgent, Coordinator, CalcTool, ToolUsingAgent, SyntaxToolPolicy
+
+# 1) 一个离线 agent:走 corespine 确定性 MockProvider(可复现,不联网)
+agent = LlmAgent("planner", MockProvider())
+print(agent.step("列个计划").output)          # '[mock:<hex>] 列个计划'
+
+# 2) 多 agent 编排:同一任务并行跑、保序收集
+coord = Coordinator([FunctionAgent("a", lambda t: f"a:{t}"),
+                     FunctionAgent("b", lambda t: f"b:{t}")])
+print([r.output for r in coord.run_parallel("go")])   # ['a:go', 'b:go']
+
+# 3) 会用工具的多步 agent:离线确定性 policy 按 `<tool>: <arg>` 语法路由,$prev 把上一步输出喂回
+solver = ToolUsingAgent("solver", SyntaxToolPolicy(), [CalcTool()])
+print(solver.step("calc: 2 + 3\ncalc: $prev * 2").output)   # '10'
+```
+
+换真实模型只需把 `MockProvider()` 换成某个真实 provider(其余代码一行不改),且先装对应 extra,
+例如 `pip install "spineagent[openai]"` 后 `OpenAICompatProvider("gpt-4o")`。详见 `docs/llms/recipes.md`。

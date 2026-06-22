@@ -6,6 +6,8 @@ observability / config 形状;**默认路径离线可跑、import-clean、零网
 
 > 通用 ≠ 地基。真正的核是更薄的 `corespine`,spineagent 是它的兄弟消费者,**不**含任何 RAG 概念。
 > 详见 [`CLAUDE.md`](CLAUDE.md) 宪章。
+>
+> **🤖 给 AI / LLM:** 用本库前先读 [`llms.txt`](llms.txt)(精简索引)与 [`docs/llms/`](docs/llms/)(完整 API / recipes / 陷阱);`pip install` 后这些文档随包位于 `site-packages/spineagent/_llms/`。
 
 ## 缝的元模式(家族统一)
 

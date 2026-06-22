@@ -56,6 +56,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/spineagent"]
 
+# 面向 AI 消费的使用文档随 wheel 一起装入 site-packages/spineagent/_llms/,装后可离线读。
+# force-include:把仓库根的文档文件 / 目录映射到 wheel 内的包子目录(源路径 → wheel 内路径)。
+[tool.hatch.build.targets.wheel.force-include]
+"llms.txt" = "spineagent/_llms/llms.txt"
+"docs/llms" = "spineagent/_llms/docs"
+
 # 本地开发把 corespine 指向同家族目录里的源码(可编辑);发布层面二者各自独立发版。
 [tool.uv.sources]
 corespine = { path = "../corespine", editable = true }

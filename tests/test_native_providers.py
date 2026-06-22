@@ -18,6 +18,21 @@ from spineagent.llm.provider import llm_providers
 
 _OPENAI_TOOL = {"type": "function", "function": {"name": "calc", "parameters": {"type": "object"}}}
 
+# 多轮 function-calling 历史(已含 assistant.tool_calls + tool 角色结果):喂给每家适配器,
+# 验证「assistant.tool_calls + tool 角色」往返转成各家 native 形状(单轮历史从不覆盖这条缝)。
+HISTORY = [
+    {"role": "system", "content": "sys"},
+    {"role": "user", "content": "q"},
+    {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "calc", "arguments": '{"x": 1}'}}
+        ],
+    },
+    {"role": "tool", "tool_call_id": "c1", "content": "2"},
+]
+
 
 def _installed(module: str) -> bool:
     """模块是否可导入(find_spec 对缺父包的点路径会抛异常,这里一律吞成 False)。"""
@@ -73,6 +88,19 @@ def test_cohere_tool_call_maps_to_openai_tool_calls():
 def test_cohere_unknown_finish_reason_falls_back_to_stop():
     result = CohereProvider(client=_FakeCohere(finish_no_tool="SOMETHING_NEW")).chat([{"role": "user", "content": "x"}])
     assert result.choices[0].finish_reason == "stop"  # 未知 finish_reason 容忍落 stop
+
+
+def test_cohere_multi_turn_tool_calls_pass_through_verbatim():
+    # Cohere v2 直传 messages:多轮 assistant.tool_calls + tool 角色应原样到达 client(零转换)。
+    fake = _FakeCohere()
+    result = CohereProvider(client=fake).chat(HISTORY, tools=[_OPENAI_TOOL])
+    assert fake.last.messages == HISTORY  # 逐字透传,assistant.tool_calls + tool 角色幸存
+    choice = result.choices[0]
+    assert choice.finish_reason == "tool_calls"  # TOOL_CALL → tool_calls
+    assert choice.message.content is None
+    tc = choice.message.tool_calls[0]
+    assert (tc.id, tc.function.name) == ("c1", "calc")  # fake tool 分支回 id "c1"
+    assert json.loads(tc.function.arguments) == {"x": 1}  # fake tool 分支回 '{"x": 1}'
 
 
 def test_cohere_satisfies_protocol_and_registry():
@@ -145,6 +173,24 @@ def test_gemini_safety_finish_maps_to_content_filter():
     assert result.choices[0].finish_reason == "content_filter"
 
 
+def test_gemini_multi_turn_tool_calls_round_trip():
+    # 多轮历史 → Gemini contents 形状,且 native function_call 响应 → OpenAI tool_calls。
+    fake = _FakeGemini(with_tool=True)
+    result = GeminiProvider(client=fake).chat(HISTORY, tools=[_OPENAI_TOOL])
+    assert fake.last.config["system_instruction"] == "sys"  # system → system_instruction
+    assert fake.last.contents == [
+        {"role": "user", "parts": [{"text": "q"}]},
+        {"role": "model", "parts": [{"function_call": {"name": "calc", "args": {"x": 1}}}]},
+        {"role": "user", "parts": [{"function_response": {"name": "c1", "response": {"result": "2"}}}]},
+    ]  # assistant.tool_calls→function_call、tool 角色→function_response(name 回落 tool_call_id "c1")
+    choice = result.choices[0]
+    assert choice.finish_reason == "tool_calls"
+    assert choice.message.content is None
+    tc = choice.message.tool_calls[0]
+    assert tc.function.name == "calc" and tc.id  # Gemini 无 id,适配器自造
+    assert json.loads(tc.function.arguments) == {"x": 1}  # fake tool 分支回 args {"x": 1}
+
+
 def test_gemini_registry_and_protocol():
     p = llm_providers.make("gemini", client=_FakeGemini())
     assert isinstance(p, GeminiProvider) and isinstance(p, LLMProvider)
@@ -196,6 +242,24 @@ def test_bedrock_tooluse_maps_to_openai_tool_calls():
 def test_bedrock_guardrail_maps_to_content_filter():
     result = BedrockConverseProvider("m", client=_FakeBedrock(stop="guardrail_intervened")).chat([{"role": "user", "content": "x"}])
     assert result.choices[0].finish_reason == "content_filter"
+
+
+def test_bedrock_multi_turn_tool_calls_round_trip():
+    # 多轮历史 → Bedrock Converse convo 形状,且 native toolUse 响应 → OpenAI tool_calls。
+    fake = _FakeBedrock(with_tool=True)
+    result = BedrockConverseProvider("m", client=fake).chat(HISTORY, tools=[_OPENAI_TOOL])
+    assert fake.last.kwargs["system"] == [{"text": "sys"}]  # system → system 参数
+    assert fake.last.messages == [
+        {"role": "user", "content": [{"text": "q"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "c1", "name": "calc", "input": {"x": 1}}}]},
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "c1", "content": [{"text": "2"}]}}]},
+    ]  # assistant.tool_calls→toolUse、tool 角色→toolResult
+    choice = result.choices[0]
+    assert choice.finish_reason == "tool_calls"  # tool_use → tool_calls
+    assert choice.message.content is None
+    tc = choice.message.tool_calls[0]
+    assert (tc.id, tc.function.name) == ("b1", "calc")  # fake tool 分支回 id "b1"
+    assert json.loads(tc.function.arguments) == {"x": 1}  # fake tool 分支回 input {"x": 1}
 
 
 def test_bedrock_registry_and_protocol():

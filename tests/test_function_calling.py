@@ -5,6 +5,9 @@
 max_steps / 可组合 / 隐私 trace。
 """
 
+import json
+
+import pytest
 from corespine.llm.provider import (
     ChatCompletion,
     Choice,
@@ -148,6 +151,22 @@ def test_function_tool_schema_is_openai_shape():
 def test_function_tool_invoke_calls_func_with_dict_args():
     ft = FunctionTool("add", "", {}, func=lambda a, b: a + b)
     assert ft.invoke({"a": 2, "b": 3}) == "5"  # 结果转字符串
+
+
+def test_function_tool_invoke_bad_kwargs_raises_typeerror():
+    # 特征化:invoke 把 args 当 **kwargs 解包,键不匹配底层函数签名 → TypeError(适配层不吞)。
+    ft = FunctionTool("add", "", {}, func=lambda a, b: a + b)
+    with pytest.raises(TypeError):
+        ft.invoke({"a": 1, "wrong": 2})
+
+
+def test_loop_malformed_json_arguments_raises_jsondecodeerror():
+    # 特征化:循环对 tool_calls.arguments 做 json.loads(...) 后再 invoke;非法 JSON 在 loads 处先抛
+    # JSONDecodeError(早于 invoke)——记录当前行为,不改 src。
+    model = _ScriptedProvider(_tool("c1", "calc", "{not json}"), _text("never reached"))
+    agent = FunctionCallingAgent("a", model, [_calc_tool([])])
+    with pytest.raises(json.JSONDecodeError):
+        agent.step("x")
 
 
 def test_function_tool_decorator_derives_schema_from_signature():

@@ -34,6 +34,22 @@ def _msgs(system: str, user: str) -> list[dict]:
     return out
 
 
+# 多轮 function-calling 历史(已含 assistant.tool_calls + tool 角色结果):喂给每家适配器,
+# 验证「assistant.tool_calls + tool 角色」往返转成各家 native 形状(单轮历史从不覆盖这条缝)。
+HISTORY = [
+    {"role": "system", "content": "sys"},
+    {"role": "user", "content": "q"},
+    {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "calc", "arguments": '{"x": 1}'}}
+        ],
+    },
+    {"role": "tool", "tool_call_id": "c1", "content": "2"},
+]
+
+
 # ---- fake 官方 SDK client ---------------------------------------------------------------
 
 
@@ -125,6 +141,24 @@ def test_anthropic_tool_use_becomes_openai_tool_calls():
     assert tc.function.arguments == json.dumps({"expr": "1+1"})  # arguments 是 JSON 串(OpenAI 一致)
 
 
+def test_anthropic_multi_turn_tool_calls_round_trip():
+    # 多轮历史(已含 assistant.tool_calls + tool 角色)→ Anthropic native 形状,且 native 工具响应→OpenAI。
+    fake = _FakeAnthropic()
+    result = AnthropicProvider(client=fake).chat(HISTORY, tools=[_OPENAI_TOOL])
+    assert fake.last.system == "sys"  # system 单独抽出
+    assert fake.last.messages == [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "calc", "input": {"x": 1}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "2"}]},
+    ]  # assistant.tool_calls→tool_use、tool 角色→tool_result
+    choice = result.choices[0]
+    assert choice.finish_reason == "tool_calls"
+    assert choice.message.content is None
+    tc = choice.message.tool_calls[0]
+    assert (tc.id, tc.function.name) == ("tu1", "calc")  # fake tool 分支回 id "tu1"
+    assert json.loads(tc.function.arguments) == {"expr": "1+1"}  # fake tool 分支回 {"expr": "1+1"}
+
+
 def test_anthropic_satisfies_llm_provider_protocol():
     assert isinstance(AnthropicProvider(client=_FakeAnthropic()), LLMProvider)
 
@@ -152,6 +186,39 @@ def test_openai_tool_calls_preserve_json_arguments():
     assert choice.finish_reason == "tool_calls"
     assert choice.message.content is None
     assert choice.message.tool_calls[0].function.arguments == '{"expr": "1+1"}'  # 原样 JSON 串
+
+
+def test_openai_multi_turn_tool_calls_pass_through_verbatim():
+    # OpenAI 适配器直传 messages:多轮 assistant.tool_calls + tool 角色应原样到达 client(零转换)。
+    fake = _FakeOpenAI()
+    result = OpenAICompatProvider("gpt-x", client=fake).chat(HISTORY, tools=[_OPENAI_TOOL])
+    assert fake.last.messages == HISTORY  # 逐字透传,assistant.tool_calls + tool 角色幸存
+    choice = result.choices[0]
+    assert choice.finish_reason == "tool_calls"
+    assert choice.message.content is None
+    tc = choice.message.tool_calls[0]
+    assert (tc.id, tc.function.name) == ("tc1", "calc")  # fake tool 分支回 id "tc1"
+    assert json.loads(tc.function.arguments) == {"expr": "1+1"}  # fake tool 分支回 '{"expr": "1+1"}'
+
+
+def test_openai_usage_none_maps_to_none():
+    # 响应 usage=None 时(部分兼容端点流式/精简模式)→ ChatCompletion.usage is None,不崩。
+    class _NoUsageOpenAI:
+        def __init__(self) -> None:
+            self.chat = SimpleNamespace(completions=self)
+
+        def create(self, *, model, messages, max_tokens, tools=None, **extra):
+            message = SimpleNamespace(role="assistant", content="ok", tool_calls=None)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(index=0, message=message, finish_reason="stop")],
+                usage=None,
+                model=model,
+                id="cmpl_x",
+            )
+
+    result = OpenAICompatProvider("gpt-x", client=_NoUsageOpenAI()).chat(_msgs("", "hi"))
+    assert result.usage is None
+    assert result.choices[0].message.content == "ok"
 
 
 def test_openai_satisfies_llm_provider_protocol():

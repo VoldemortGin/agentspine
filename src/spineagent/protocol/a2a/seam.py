@@ -9,8 +9,6 @@ card(能力描述)并应答一条任务,让跨 agent 协作在离线 / 测试下
 顶层【绝不】import 真实 SDK——import spineagent 不该拉入任何网络 SDK。
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable

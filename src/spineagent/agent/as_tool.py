@@ -12,8 +12,6 @@ run(arg) 即对子 agent 跑一步、取其输出包成带 provenance 的 ToolRe
 工具调用发一条隐私安全的 tool_step(见 agent/tool_using.py)。
 """
 
-from __future__ import annotations
-
 from spineagent.agent.agent import Agent
 from spineagent.tools.tool import ToolResult
 

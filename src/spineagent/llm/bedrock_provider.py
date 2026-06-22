@@ -10,8 +10,6 @@ import-clean:顶层零 SDK,未注入 client 时经 lazy_extra_import 拉 [bedroc
 boto3 处理。映射可注入 fake client 离线单测。
 """
 
-from __future__ import annotations
-
 import json
 from typing import Any
 

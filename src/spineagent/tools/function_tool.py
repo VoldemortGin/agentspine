@@ -9,8 +9,6 @@ FunctionTool 就是这个:schema() 产出 OpenAI function-tool 形状喂给 chat
 保持薄:只覆盖常见标量/容器类型,复杂 schema 可显式用 FunctionTool 构造。
 """
 
-from __future__ import annotations
-
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass

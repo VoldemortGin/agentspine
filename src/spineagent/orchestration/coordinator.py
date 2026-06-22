@@ -15,8 +15,6 @@ resilient 后,单个 agent 的异常被捕获、归一为家族统一错误 dict
 被直接调用时自己的事(见 agent/agent.py 的隐私约定)。
 """
 
-from __future__ import annotations
-
 import time
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor

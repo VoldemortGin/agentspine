@@ -10,8 +10,6 @@ finishReason 映射、role model→assistant、usageMetadata 重映射)。reason
 未注入 client 时经 lazy_extra_import 拉 [gemini] extra(google-genai)。映射可注入 fake client 离线单测。
 """
 
-from __future__ import annotations
-
 import json
 from typing import Any
 

@@ -11,8 +11,6 @@
 本包再用 conformance 把这条不变量绑死(见 spineagent/conformance.py)。
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable

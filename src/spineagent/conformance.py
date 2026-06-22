@@ -17,8 +17,6 @@ corespine 的 ConformanceSuite 只提供「实现 × 不变量」笛卡尔积的
 而非埋雷。
 """
 
-from __future__ import annotations
-
 from corespine.conformance.harness import InvariantPack
 from corespine.observability.trace import FORBIDDEN_KEYS, InProcessPrivacyTraceSink
 

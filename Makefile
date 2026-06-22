@@ -20,7 +20,7 @@ install: ## 建 venv 并可编辑安装:先装兄弟薄核 corespine,再装 spin
 # ---- 质量门 ------------------------------------------------------------------------
 
 .PHONY: ci
-ci: lint test ## 本地 CI 门:lint + 测试(与 CI 同一套门)
+ci: lint typecheck test ## 本地 CI 门:lint + 类型检查 + 测试(与 CI 同一套门)
 
 .PHONY: test
 test: ## 跑测试套件(离线、确定性)
@@ -29,6 +29,10 @@ test: ## 跑测试套件(离线、确定性)
 .PHONY: lint
 lint: ## ruff 静态检查(风格 + import 序 + 死代码)
 	$(PYTHON) -m ruff check src/spineagent tests examples
+
+.PHONY: typecheck
+typecheck: ## mypy --strict 类型检查(出货代码 src/spineagent)
+	$(PYTHON) -m mypy
 
 .PHONY: fmt
 fmt: ## ruff 自动格式化

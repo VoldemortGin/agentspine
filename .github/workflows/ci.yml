@@ -1,4 +1,4 @@
-# spineagent CI —— push + PR 上跑 lint + 测试,Python 多版本矩阵。
+# spineagent CI —— push + PR 上跑 lint + 类型检查 + 测试,Python 多版本矩阵。
 #
 # 关键约束:spineagent 依赖兄弟薄核 corespine,而 corespine 尚未发到 PyPI。所以 CI 里把
 # corespine【并排签出】到工作区,再【先于】spineagent path-install —— 复刻本地家族布局
@@ -11,7 +11,7 @@ on:
 
 jobs:
   ci:
-    name: lint + test (py${{ matrix.python }})
+    name: lint + typecheck + test (py${{ matrix.python }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -43,11 +43,20 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      # `make install` 建 venv 并先装 corespine、再装 spineagent[dev];`make ci` = lint + 测试。
+      # `make install` 建 venv 并先装 corespine、再装 spineagent[dev]。
       - name: Install (corespine first, then spineagent[dev])
         working-directory: spineagent
         run: make install
 
-      - name: CI gate (lint + test)
+      # 三道门各自独立成步,失败时一眼看出是 lint / 类型 / 测试哪一关红(对称 corespine CI)。
+      - name: Lint (ruff)
         working-directory: spineagent
-        run: make ci
+        run: make lint
+
+      - name: Typecheck (mypy --strict)
+        working-directory: spineagent
+        run: make typecheck
+
+      - name: Test (pytest)
+        working-directory: spineagent
+        run: make test

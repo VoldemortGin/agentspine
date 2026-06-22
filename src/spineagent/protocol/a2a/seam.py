@@ -46,7 +46,10 @@ class A2AResult:
 class A2AAgent(Protocol):
     """A2A 协议:有名字;能给出 agent card(能力描述);能接收并应答一条任务。"""
 
-    name: str
+    # name 声明为只读(property),与实现侧 OfflineA2AStub.name 的 @property 一致:协议从不写它,
+    # 只读取作 provenance。声明成可写变量会让 strict 拒绝只读实现(member expected settable)。
+    @property
+    def name(self) -> str: ...
 
     def card(self) -> dict[str, Any]: ...
 

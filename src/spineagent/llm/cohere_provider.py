@@ -79,7 +79,7 @@ class CohereProvider:
         result_message = ResponseMessage(
             role="assistant", content=(text or None), tool_calls=(tool_calls or None)
         )
-        finish = _COHERE_FINISH.get(getattr(response, "finish_reason", None), "stop")
+        finish = _COHERE_FINISH.get(str(getattr(response, "finish_reason", None) or ""), "stop")
         choice = Choice(index=0, message=result_message, finish_reason=finish)
         return ChatCompletion(choices=(choice,), usage=_cohere_usage(getattr(response, "usage", None)), model=self._model)
 

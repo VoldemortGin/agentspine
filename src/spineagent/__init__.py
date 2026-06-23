@@ -71,7 +71,11 @@ from spineagent.protocol.mcp.seam import (
     load_mcp_sdk,
     mcp_clients,
 )
-from spineagent.tools.function_tool import FunctionTool, function_tool
+from spineagent.tools.function_tool import (
+    FunctionTool,
+    InvalidToolArguments,
+    function_tool,
+)
 from spineagent.tools.tool import CalcTool, EchoTool, Tool, ToolResult, tool_registry
 
 # 版本号动态取自已安装包元数据(单一真相源 = pyproject.toml 的 version),杜绝再与硬编码
@@ -108,6 +112,7 @@ __all__ = [
     "CalcTool",
     "tool_registry",
     "FunctionTool",
+    "InvalidToolArguments",
     "function_tool",
     # orchestration
     "Coordinator",

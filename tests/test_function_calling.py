@@ -5,8 +5,6 @@
 max_steps / 可组合 / 隐私 trace。
 """
 
-import json
-
 import pytest
 from corespine.llm.provider import (
     ChatCompletion,
@@ -22,7 +20,11 @@ from corespine.observability.trace import InProcessPrivacyTraceSink
 from spineagent.agent.agent import Agent
 from spineagent.agent.function_calling import FunctionCallingAgent
 from spineagent.orchestration.coordinator import Coordinator
-from spineagent.tools.function_tool import FunctionTool, function_tool
+from spineagent.tools.function_tool import (
+    FunctionTool,
+    InvalidToolArguments,
+    function_tool,
+)
 
 
 class _ScriptedProvider:
@@ -51,7 +53,9 @@ def _tool(call_id: str, name: str, arguments: str) -> ChatCompletion:
     msg = ResponseMessage(
         role="assistant",
         content=None,
-        tool_calls=(LLMToolCall(id=call_id, function=FunctionCall(name=name, arguments=arguments)),),
+        tool_calls=(
+            LLMToolCall(id=call_id, function=FunctionCall(name=name, arguments=arguments)),
+        ),
     )
     return ChatCompletion(choices=(Choice(index=0, message=msg, finish_reason="tool_calls"),))
 
@@ -67,7 +71,11 @@ def _calc_tool(spy: list) -> FunctionTool:
     return FunctionTool(
         name="calc",
         description="算术求值",
-        parameters={"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]},
+        parameters={
+            "type": "object",
+            "properties": {"expression": {"type": "string"}},
+            "required": ["expression"],
+        },
         func=calc,
     )
 
@@ -126,14 +134,25 @@ def test_is_agent_and_composes_in_coordinator():
 
 def test_step_trace_is_privacy_safe():
     echo = FunctionTool(
-        "echo", "回显", {"type": "object", "properties": {"text": {"type": "string"}}}, func=lambda text: text
+        "echo",
+        "回显",
+        {"type": "object", "properties": {"text": {"type": "string"}}},
+        func=lambda text: text,
     )
     model = _ScriptedProvider(_tool("c1", "echo", '{"text": "机密 2+3"}'), _text("机密结果"))
     sink = InProcessPrivacyTraceSink()
     FunctionCallingAgent("s", model, [echo]).step("机密任务", trace=sink)
     assert sink.codes() == ["tool_step", "agent_finish"]
     for event in sink.events:
-        assert set(event.fields) <= {"agent", "step", "tool", "arg_chars", "output_chars", "steps", "answer_chars"}
+        assert set(event.fields) <= {
+            "agent",
+            "step",
+            "tool",
+            "arg_chars",
+            "output_chars",
+            "steps",
+            "answer_chars",
+        }
         assert all("机密" not in str(v) for v in event.fields.values())  # 按值不泄露
 
 
@@ -141,7 +160,12 @@ def test_step_trace_is_privacy_safe():
 
 
 def test_function_tool_schema_is_openai_shape():
-    ft = FunctionTool("calc", "算术", {"type": "object", "properties": {"x": {"type": "string"}}}, func=lambda x: x)
+    ft = FunctionTool(
+        "calc",
+        "算术",
+        {"type": "object", "properties": {"x": {"type": "string"}}},
+        func=lambda x: x,
+    )
     s = ft.schema()
     assert s["type"] == "function"
     assert s["function"]["name"] == "calc"
@@ -154,19 +178,115 @@ def test_function_tool_invoke_calls_func_with_dict_args():
 
 
 def test_function_tool_invoke_bad_kwargs_raises_typeerror():
-    # 特征化:invoke 把 args 当 **kwargs 解包,键不匹配底层函数签名 → TypeError(适配层不吞)。
+    # 特征化:invoke 把 args 当 **kwargs 解包,键不匹配底层函数签名 → TypeError(invoke 本身不吞;
+    # 边界校验在 parse_arguments,见下方一组 parse_arguments 测试)。
     ft = FunctionTool("add", "", {}, func=lambda a, b: a + b)
     with pytest.raises(TypeError):
         ft.invoke({"a": 1, "wrong": 2})
 
 
-def test_loop_malformed_json_arguments_raises_jsondecodeerror():
-    # 特征化:循环对 tool_calls.arguments 做 json.loads(...) 后再 invoke;非法 JSON 在 loads 处先抛
-    # JSONDecodeError(早于 invoke)——记录当前行为,不改 src。
-    model = _ScriptedProvider(_tool("c1", "calc", "{not json}"), _text("never reached"))
-    agent = FunctionCallingAgent("a", model, [_calc_tool([])])
-    with pytest.raises(json.JSONDecodeError):
-        agent.step("x")
+# ---- M1:FunctionTool.parse_arguments 边界校验(用工具自带 schema)-------------------------
+
+
+def _typed_tool() -> FunctionTool:
+    return FunctionTool(
+        "calc",
+        "算术",
+        {
+            "type": "object",
+            "properties": {"expression": {"type": "string"}, "n": {"type": "integer"}},
+            "required": ["expression"],
+        },
+        func=lambda expression, n=1: f"{expression}*{n}",
+    )
+
+
+def test_parse_arguments_accepts_valid_payload():
+    assert _typed_tool().parse_arguments('{"expression": "1+1", "n": 3}') == {
+        "expression": "1+1",
+        "n": 3,
+    }
+
+
+def test_parse_arguments_empty_string_defaults_to_empty_dict():
+    # arguments 为空串 → 视作 {};但缺必填参数仍应被校验挡住。
+    with pytest.raises(InvalidToolArguments) as ei:
+        _typed_tool().parse_arguments("")
+    assert "缺少必填参数" in str(ei.value)
+
+
+def test_parse_arguments_malformed_json_raises_invalid_tool_arguments():
+    with pytest.raises(InvalidToolArguments) as ei:
+        _typed_tool().parse_arguments("{not json}")
+    assert ei.value.tool == "calc" and "合法 JSON" in str(ei.value)
+
+
+def test_parse_arguments_non_object_json_rejected():
+    with pytest.raises(InvalidToolArguments) as ei:
+        _typed_tool().parse_arguments("[1, 2, 3]")
+    assert "JSON 对象" in str(ei.value)
+
+
+def test_parse_arguments_extra_key_rejected():
+    with pytest.raises(InvalidToolArguments) as ei:
+        _typed_tool().parse_arguments('{"expression": "1+1", "evil": "x"}')
+    assert "多余参数" in str(ei.value)
+
+
+def test_parse_arguments_type_mismatch_rejected():
+    with pytest.raises(InvalidToolArguments) as ei:
+        _typed_tool().parse_arguments('{"expression": "1+1", "n": "not-int"}')
+    assert "类型应为 integer" in str(ei.value)
+
+
+def test_parse_arguments_bool_is_not_integer():
+    # bool 是 int 子类,但 schema integer 不接受 bool(避免 True 被当 1 偷渡)。
+    with pytest.raises(InvalidToolArguments):
+        _typed_tool().parse_arguments('{"expression": "1+1", "n": true}')
+
+
+def test_parse_arguments_without_declared_properties_stays_thin():
+    # 无 properties 声明的 schema → 不约束键(保持薄);合法 JSON 对象原样通过。
+    ft = FunctionTool("free", "", {"type": "object"}, func=lambda **kw: str(kw))
+    assert ft.parse_arguments('{"anything": 1, "goes": 2}') == {"anything": 1, "goes": 2}
+
+
+def test_loop_malformed_json_arguments_returns_located_error_not_crash():
+    # M1 边界校验:非法 JSON 不再裸抛 JSONDecodeError,而是被 parse_arguments 归一成清晰可定位
+    # 的错误消息,以 tool 角色喂回让循环优雅继续(模型据此可纠正)。
+    spy: list = []
+    model = _ScriptedProvider(_tool("c1", "calc", "{not json}"), _text("已纠正"))
+    agent = FunctionCallingAgent("a", model, [_calc_tool(spy)])
+    result = agent.step("x")
+    assert result.output == "已纠正"  # 循环没崩,跑到第 2 轮收尾
+    assert spy == []  # 入参非法 → 底层函数从未被调用
+    tool_msg = next(m for m in model.calls[1] if m.get("role") == "tool")
+    assert "入参非法" in tool_msg["content"] and "calc" in tool_msg["content"]  # 错误定位到工具
+
+
+def test_loop_adversarial_extra_kwargs_returns_located_error_not_typeerror():
+    # M1:schema 外的多余键(敌意/畸形载荷)在校验处被挡,不再 splat 进函数撞出裸 TypeError。
+    spy: list = []
+    model = _ScriptedProvider(
+        _tool("c1", "calc", '{"expression": "1+1", "evil": "x"}'), _text("已处理")
+    )
+    agent = FunctionCallingAgent("a", model, [_calc_tool(spy)])
+    result = agent.step("x")
+    assert result.output == "已处理"
+    assert spy == []  # 多余键 → 底层函数从未被调用(挡在边界,不撞签名)
+    tool_msg = next(m for m in model.calls[1] if m.get("role") == "tool")
+    assert "多余参数" in tool_msg["content"]
+
+
+def test_loop_missing_required_argument_returns_located_error():
+    # M1:缺必填参数 → 清晰错误,函数不被调用。
+    spy: list = []
+    model = _ScriptedProvider(_tool("c1", "calc", "{}"), _text("ok"))
+    agent = FunctionCallingAgent("a", model, [_calc_tool(spy)])
+    agent.step("x")
+    tool_msg = next(m for m in model.calls[1] if m.get("role") == "tool")
+    assert "缺少必填参数" in tool_msg["content"] and "expression" in tool_msg["content"]
+    assert spy == []
 
 
 def test_function_tool_decorator_derives_schema_from_signature():
@@ -231,7 +351,10 @@ def test_parallel_tool_calls_in_one_turn_both_executed_and_id_aligned():
     # 单个 assistant 轮里携两条 tool_calls(id "a" / "b"):两条都执行,结果以 tool 角色按序喂回,
     # tool_call_id 与各自调用一一对齐;末轮模型出文本收尾。
     echo = FunctionTool(
-        "echo", "", {"type": "object", "properties": {"text": {"type": "string"}}}, func=lambda text: text
+        "echo",
+        "",
+        {"type": "object", "properties": {"text": {"type": "string"}}},
+        func=lambda text: text,
     )
     parallel = ChatCompletion(
         choices=(
@@ -241,8 +364,12 @@ def test_parallel_tool_calls_in_one_turn_both_executed_and_id_aligned():
                     role="assistant",
                     content=None,
                     tool_calls=(
-                        LLMToolCall(id="a", function=FunctionCall(name="echo", arguments='{"text": "x"}')),
-                        LLMToolCall(id="b", function=FunctionCall(name="echo", arguments='{"text": "y"}')),
+                        LLMToolCall(
+                            id="a", function=FunctionCall(name="echo", arguments='{"text": "x"}')
+                        ),
+                        LLMToolCall(
+                            id="b", function=FunctionCall(name="echo", arguments='{"text": "y"}')
+                        ),
                     ),
                 ),
                 finish_reason="tool_calls",
@@ -256,7 +383,9 @@ def test_parallel_tool_calls_in_one_turn_both_executed_and_id_aligned():
     tool_msgs = [m for m in second_turn if m.get("role") == "tool"]
     assert len(tool_msgs) == 2
     assert [m["tool_call_id"] for m in tool_msgs] == ["a", "b"]  # id 按序对齐
-    assistant_with_calls = [m for m in second_turn if m.get("role") == "assistant" and m.get("tool_calls")]
+    assistant_with_calls = [
+        m for m in second_turn if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
     assert len(assistant_with_calls) == 1  # 恰一条 assistant 携 tool_calls
     assert len(assistant_with_calls[0]["tool_calls"]) == 2  # 该轮含 2 个并行调用
 
@@ -264,7 +393,10 @@ def test_parallel_tool_calls_in_one_turn_both_executed_and_id_aligned():
 def test_usage_reflects_final_turn_even_when_final_is_none():
     # 循环每轮覆写 last_usage:首轮工具调用有 usage,末轮文本 usage=None → 末轮的 None 取胜。
     echo = FunctionTool(
-        "echo", "", {"type": "object", "properties": {"text": {"type": "string"}}}, func=lambda text: text
+        "echo",
+        "",
+        {"type": "object", "properties": {"text": {"type": "string"}}},
+        func=lambda text: text,
     )
     final = ChatCompletion(
         choices=(Choice(index=0, message=ResponseMessage(role="assistant", content="fin")),),

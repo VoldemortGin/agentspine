@@ -48,7 +48,11 @@ jobs:
         working-directory: spineagent
         run: make install
 
-      # 三道门各自独立成步,失败时一眼看出是 lint / 类型 / 测试哪一关红(对称 corespine CI)。
+      # 四道门各自独立成步,失败时一眼看出是 格式 / lint / 类型 / 测试哪一关红(对称 corespine CI)。
+      - name: Format check (ruff format --check)
+        working-directory: spineagent
+        run: make fmt-check
+
       - name: Lint (ruff)
         working-directory: spineagent
         run: make lint

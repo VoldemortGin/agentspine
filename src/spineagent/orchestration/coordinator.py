@@ -50,7 +50,9 @@ class Coordinator:
         start = time.perf_counter()
         workers = max_workers or max(1, len(self._agents))
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(lambda agent: self._run_one(agent, task, resilient), self._agents))
+            results = list(
+                pool.map(lambda agent: self._run_one(agent, task, resilient), self._agents)
+            )
         self._emit("parallel", start, results)
         return results
 

@@ -75,6 +75,7 @@ class _ScriptedModel:
     def chat(self, messages, *, tools=None):  # noqa: ARG002 — 演示用,忽略入参
         return next(self._turns)
 
+
 # 一段含敏感正文的任务:它绝不该出现在任何 trace 里(隐私不变量,文末自检)。
 _TASK = "为发布写一个三步上线计划:机密代号 42"
 
@@ -108,10 +109,12 @@ def main() -> None:
 
     # 弹性容错:一个会抛异常的 agent 在 resilient 模式下被捕获成结构化错误,不炸穿整批。
     print("== 弹性容错(resilient:坏 agent 不炸整批)==")
-    flaky = Coordinator([
-        FunctionAgent("good", lambda t: f"ok:{t}"),
-        FunctionAgent("flaky", lambda t: (_ for _ in ()).throw(RuntimeError("boom"))),
-    ])
+    flaky = Coordinator(
+        [
+            FunctionAgent("good", lambda t: f"ok:{t}"),
+            FunctionAgent("flaky", lambda t: (_ for _ in ()).throw(RuntimeError("boom"))),
+        ]
+    )
     for r in flaky.run_sequential("go", resilient=True):
         status = "OK" if r.ok else f"ERROR[{r.error['code']}] {r.error['message']}"
         print(f"  {r.agent}: {status}")
@@ -155,11 +158,14 @@ def main() -> None:
 
     # 流水线即一等 agent:把一串 agent 串成单个 ChainAgent,可再进编排 / 当工具 / 套 chain。
     print("== 流水线即一等 agent(ChainAgent)==")
-    etl = ChainAgent("etl", [
-        FunctionAgent("extract", lambda t: f"extract({t})"),
-        FunctionAgent("transform", lambda t: t.upper()),
-        FunctionAgent("load", lambda t: f"load[{t}]"),
-    ])
+    etl = ChainAgent(
+        "etl",
+        [
+            FunctionAgent("extract", lambda t: f"extract({t})"),
+            FunctionAgent("transform", lambda t: t.upper()),
+            FunctionAgent("load", lambda t: f"load[{t}]"),
+        ],
+    )
     chained = etl.step("raw")
     print(f"  agent={chained.agent} output={chained.output!r}(extract→transform→load 链式)")
 
@@ -168,7 +174,11 @@ def main() -> None:
     LlmAgent("planner", MockProvider()).step(_TASK, trace=step_trace)
 
     print("== 隐私安全 trace(只含 code / 计数 / 耗时,无任务/输出正文)==")
-    for label, sink in (("编排", orchestration_trace), ("会用工具", tool_trace), ("步级", step_trace)):
+    for label, sink in (
+        ("编排", orchestration_trace),
+        ("会用工具", tool_trace),
+        ("步级", step_trace),
+    ):
         for event in sink.events:
             print(f"  [{label}] code={event.code} fields={dict(event.fields)}")
 

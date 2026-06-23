@@ -56,9 +56,7 @@ class ToolUsingAgent:
     def step(self, task: str, *, trace: TraceSink | None = None) -> AgentResult:
         history: list[Observation] = []
         while True:
-            action = self._policy.decide(
-                task, tools=self._tool_names, history=tuple(history)
-            )
+            action = self._policy.decide(task, tools=self._tool_names, history=tuple(history))
             if isinstance(action, Finish):
                 _emit_finish(trace, self._name, len(history), action.answer)
                 return AgentResult(agent=self._name, output=action.answer)

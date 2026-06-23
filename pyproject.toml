@@ -100,3 +100,18 @@ module = [
     "a2a.*",
 ]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# 测试根目录固定为 tests/(从包根跑,杜绝误收别处文件)。
+testpaths = ["tests"]
+# importlib 导入模式:不依赖 __init__.py / sys.path 改写,与 src 布局 + 现代 pytest 推荐一致。
+addopts = "--import-mode=importlib"
+# warning 即错误:任何 DeprecationWarning / ResourceWarning 等都让测试红,逼早修而非埋雷。
+# 精确豁免一条:beartype 0.18 把 `Action: TypeAlias = ToolCall | Finish`(PEP 613)告警为
+# 「已被 PEP 695 取代」。但 PEP 695 的 `type X = ...` 语法仅 3.12+ 可用,而本包支持 3.10+;
+# 改写成 NewType 又会破坏联合类型给 mypy --strict 的语义(beartype 自己的告警文案亦如此自嘲)。
+# 故【按类别精确 ignore 这一条】,其余 warning 仍一律 error。
+filterwarnings = [
+    "error",
+    "ignore::beartype.roar.BeartypeDecorHintPep613DeprecationWarning",
+]

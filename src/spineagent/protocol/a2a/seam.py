@@ -74,9 +74,7 @@ class OfflineA2AStub:
         return {"name": self._name, "transport": "offline-loopback", "skills": ["echo"]}
 
     def send(self, task: A2ATask) -> A2AResult:
-        return A2AResult(
-            task_id=task.task_id, output=self._responder(task.text), agent=self._name
-        )
+        return A2AResult(task_id=task.task_id, output=self._responder(task.text), agent=self._name)
 
 
 class A2AAgentAdapter:

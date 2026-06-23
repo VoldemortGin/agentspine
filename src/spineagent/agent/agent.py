@@ -101,9 +101,7 @@ class FunctionAgent:
         return result
 
 
-def _emit_step(
-    trace: TraceSink | None, name: str, task: str, result: AgentResult
-) -> None:
+def _emit_step(trace: TraceSink | None, name: str, task: str, result: AgentResult) -> None:
     """记一条隐私安全的步级 trace:只记 agent 名 + 长度 + token 数,绝不记正文。"""
     if trace is None:
         return

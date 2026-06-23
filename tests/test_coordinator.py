@@ -74,9 +74,7 @@ def test_pipeline_fail_fast_stops_and_skips_downstream():
 
 
 def test_resilient_sequential_captures_error_and_continues():
-    coord = Coordinator(
-        [FunctionAgent("boom", _boom), FunctionAgent("b", lambda t: f"b:{t}")]
-    )
+    coord = Coordinator([FunctionAgent("boom", _boom), FunctionAgent("b", lambda t: f"b:{t}")])
     results = coord.run_sequential("go", resilient=True)
     # 第一个 agent 失败被捕获成结构化错误,但批次继续把第二个跑完。
     assert [r.agent for r in results] == ["boom", "b"]
@@ -105,9 +103,7 @@ def test_run_parallel_is_truly_concurrent():
 
 
 def test_resilient_parallel_captures_error_preserving_order():
-    coord = Coordinator(
-        [FunctionAgent("a", lambda t: f"a:{t}"), FunctionAgent("boom", _boom)]
-    )
+    coord = Coordinator([FunctionAgent("a", lambda t: f"a:{t}"), FunctionAgent("boom", _boom)])
     results = coord.run_parallel("go", resilient=True)
     assert [r.agent for r in results] == ["a", "boom"]
     assert results[0].ok
@@ -139,7 +135,9 @@ def test_resilient_all_success_matches_normal_run():
 
 def test_ok_reflects_error_not_empty_output():
     # ok 由 error 判定,而非 output 是否为空:成功但输出为空的步仍 ok(钉死 ok 的判别语义)。
-    results = Coordinator([FunctionAgent("empty", lambda t: "")]).run_sequential("go", resilient=True)
+    results = Coordinator([FunctionAgent("empty", lambda t: "")]).run_sequential(
+        "go", resilient=True
+    )
     assert results[0].ok and results[0].output == ""
 
 

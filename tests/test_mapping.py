@@ -62,9 +62,7 @@ def test_assistant_tool_calls_turn_decodes_arguments():
             {
                 "role": "assistant",
                 "content": "hi",
-                "tool_calls": [
-                    {"id": "c1", "function": {"name": "calc", "arguments": '{"x": 1}'}}
-                ],
+                "tool_calls": [{"id": "c1", "function": {"name": "calc", "arguments": '{"x": 1}'}}],
             }
         ]
     )

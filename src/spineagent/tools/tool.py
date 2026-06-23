@@ -66,11 +66,7 @@ class CalcTool:
     def run(self, arg: str) -> ToolResult:
         value = _safe_eval(ast.parse(arg, mode="eval").body)
         # 整数值去掉多余的 .0,输出更干净。
-        text = (
-            str(int(value))
-            if isinstance(value, float) and value.is_integer()
-            else str(value)
-        )
+        text = str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
         return ToolResult(tool=self.name, output=text)
 
 

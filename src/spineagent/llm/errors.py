@@ -7,22 +7,14 @@
 【只归一 vendor 运行时故障,绝不兜底程序错】:KeyError / TypeError / AttributeError 这类
 逻辑 bug 照常向上抛出——不退化成 except Exception 兜底,以免韧性外衣掩盖真正的代码缺陷。
 
-rule-of-three 候选:ragspine 已在 `ragspine.agent.llm_provider` 本地定义同形 ProviderError
-(同继承 corespine.CorespineError、同 code="provider.error")。两个消费者重复同一块稳定面 ——
-未来可把 ProviderError 提上 corespine(再记一条 ADR);本次刻意只在 spineagent 本地定义,
-不动 corespine / ragspine。
+rule-of-three 已触发:ragspine 与 spineagent 两个消费者重复同一块稳定面(同继承
+corespine.CorespineError、同 code="provider.error"),据此把 ProviderError 提上了
+corespine 0.1.1。本模块改为【从 corespine 再导出】,保留 `spineagent.llm.errors.ProviderError`
+这一历史导入路径向后兼容;不再在本地定义。
 """
 
 from __future__ import annotations
 
-from corespine import CorespineError
+from corespine import ProviderError
 
-
-class ProviderError(CorespineError):
-    """provider 调用失败的统一边界异常(网络/超时/API 错误归一到此)。
-
-    只包裹 SDK 抛出的网络/API 异常;程序错误(KeyError/TypeError 等)不归此类,照常向上抛出,
-    避免韧性兜底掩盖逻辑 bug。继承家族统一异常基类,稳定 code 为 "provider.error"(ADR errors 缝)。
-    """
-
-    code = "provider.error"
+__all__ = ["ProviderError"]

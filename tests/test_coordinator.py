@@ -179,3 +179,9 @@ def test_resilient_trace_counts_failures():
     coord.run_sequential("go", resilient=True)
     # 失败计数进编排级 trace(隐私安全:只记数量,不记错误正文)。
     assert sink.events[0].fields["failures"] == 1
+
+
+def test_empty_agents_sequential_and_parallel_return_empty():
+    # 空 agent 列表:顺序 / 并行都返回空列表(与流水线空一致,无 agent 可跑)。
+    assert Coordinator([]).run_sequential("go") == []
+    assert Coordinator([]).run_parallel("go") == []

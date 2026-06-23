@@ -190,3 +190,87 @@ def test_function_tool_decorator_with_overrides():
         return loc
 
     assert f.name == "weather" and f.description == "天气"
+
+
+def test_function_tool_decorator_skips_var_args_and_kwargs():
+    # *args / **kwargs 形参不进派生 schema(只取具名定参)。
+    @function_tool
+    def f(a: str, *args, **kwargs) -> str:
+        return a
+
+    assert f.parameters["properties"] == {"a": {"type": "string"}}
+    assert f.parameters["required"] == ["a"]
+
+
+def test_function_tool_decorator_unannotated_param_falls_back_to_string():
+    # 无注解形参回退为 "string";有注解的按映射取类型。
+    @function_tool
+    def g(x, y: int):
+        return x
+
+    props = g.parameters["properties"]
+    assert props["x"]["type"] == "string"
+    assert props["y"]["type"] == "integer"
+
+
+def test_function_tool_decorator_maps_list_and_dict_annotations():
+    # list -> "array"、dict -> "object"。
+    @function_tool
+    def h(items: list, mapping: dict) -> str:
+        return ""
+
+    props = h.parameters["properties"]
+    assert props["items"]["type"] == "array"
+    assert props["mapping"]["type"] == "object"
+
+
+# ---- 并行工具调用 / usage 取末轮 ------------------------------------------------------------
+
+
+def test_parallel_tool_calls_in_one_turn_both_executed_and_id_aligned():
+    # 单个 assistant 轮里携两条 tool_calls(id "a" / "b"):两条都执行,结果以 tool 角色按序喂回,
+    # tool_call_id 与各自调用一一对齐;末轮模型出文本收尾。
+    echo = FunctionTool(
+        "echo", "", {"type": "object", "properties": {"text": {"type": "string"}}}, func=lambda text: text
+    )
+    parallel = ChatCompletion(
+        choices=(
+            Choice(
+                index=0,
+                message=ResponseMessage(
+                    role="assistant",
+                    content=None,
+                    tool_calls=(
+                        LLMToolCall(id="a", function=FunctionCall(name="echo", arguments='{"text": "x"}')),
+                        LLMToolCall(id="b", function=FunctionCall(name="echo", arguments='{"text": "y"}')),
+                    ),
+                ),
+                finish_reason="tool_calls",
+            ),
+        ),
+    )
+    model = _ScriptedProvider(parallel, _text("done"))
+    result = FunctionCallingAgent("p", model, [echo]).step("go")
+    assert result.output == "done"
+    second_turn = model.calls[1]
+    tool_msgs = [m for m in second_turn if m.get("role") == "tool"]
+    assert len(tool_msgs) == 2
+    assert [m["tool_call_id"] for m in tool_msgs] == ["a", "b"]  # id 按序对齐
+    assistant_with_calls = [m for m in second_turn if m.get("role") == "assistant" and m.get("tool_calls")]
+    assert len(assistant_with_calls) == 1  # 恰一条 assistant 携 tool_calls
+    assert len(assistant_with_calls[0]["tool_calls"]) == 2  # 该轮含 2 个并行调用
+
+
+def test_usage_reflects_final_turn_even_when_final_is_none():
+    # 循环每轮覆写 last_usage:首轮工具调用有 usage,末轮文本 usage=None → 末轮的 None 取胜。
+    echo = FunctionTool(
+        "echo", "", {"type": "object", "properties": {"text": {"type": "string"}}}, func=lambda text: text
+    )
+    final = ChatCompletion(
+        choices=(Choice(index=0, message=ResponseMessage(role="assistant", content="fin")),),
+        usage=None,
+    )
+    model = _ScriptedProvider(_tool("c1", "echo", '{"text": "x"}'), final)
+    result = FunctionCallingAgent("u", model, [echo]).step("go")
+    assert result.output == "fin"
+    assert result.usage is None  # 末轮 None 覆写早轮 usage

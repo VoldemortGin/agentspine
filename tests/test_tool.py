@@ -58,3 +58,20 @@ def test_registry_unknown_spec_lists_available():
         tool_registry.make("nope")
     msg = str(ei.value)
     assert "echo" in msg and "calc" in msg
+
+
+def test_calc_tool_division_by_zero_raises():
+    # 除零透传 ZeroDivisionError(求值层不吞,不伪造结果)。
+    with pytest.raises(ZeroDivisionError):
+        CalcTool().run("1/0")
+
+
+def test_calc_tool_accepts_bare_bool_constant():
+    # 特征化:bool 是 int 子类型,被白名单数字常量接纳(已知怪癖,非改动诉求)。
+    assert CalcTool().run("True").output == "True"
+
+
+def test_calc_tool_rejects_string_literal_constant():
+    # 非数字常量(字符串字面量)被拒(只认数字常量)。
+    with pytest.raises(ValueError):
+        CalcTool().run("'abc'")

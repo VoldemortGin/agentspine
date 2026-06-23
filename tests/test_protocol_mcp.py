@@ -4,6 +4,7 @@ import pytest
 
 from spineagent.protocol.mcp.seam import (
     McpClient,
+    McpClientTool,
     McpServer,
     McpTool,
     OfflineMcpStub,
@@ -46,3 +47,31 @@ def test_real_backend_missing_extra_gives_friendly_error():
     with pytest.raises(ImportError) as ei:
         load_mcp_sdk()
     assert "pip install spineagent[mcp]" in str(ei.value)
+
+
+# ---- McpClientTool 桥(把 MCP client 的具名工具桥成 spineagent Tool)---------------------
+
+
+def test_mcp_client_tool_custom_arg_key_and_result_key():
+    # 自定义 arg_key / result_key:run 把单串入参包成 {arg_key: arg},再取结果里的 result_key。
+    stub = OfflineMcpStub()
+    stub.register_tool(McpTool("up"), lambda args: {"out": args["text"].upper()})
+    tool = McpClientTool("up", stub, arg_key="text", result_key="out")
+    result = tool.run("hi")
+    assert result.output == "HI"
+    assert result.tool == "up"  # provenance
+
+
+def test_mcp_client_tool_missing_result_key_raises_keyerror():
+    # 结果里缺默认 result_key("result")→ 取键时 KeyError(适配层不吞)。
+    stub = OfflineMcpStub()
+    stub.register_tool(McpTool("x"), lambda args: {"wrong": 1})
+    with pytest.raises(KeyError):
+        McpClientTool("x", stub).run("a")
+
+
+def test_mcp_client_tool_non_str_result_is_stringified():
+    # 非 str 结果统一 str() 化(ToolResult.output 恒为字符串)。
+    stub = OfflineMcpStub()
+    stub.register_tool(McpTool("n"), lambda args: {"result": 42})
+    assert McpClientTool("n", stub).run("a").output == "42"

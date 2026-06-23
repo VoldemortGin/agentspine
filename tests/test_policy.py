@@ -93,3 +93,24 @@ def test_registry_unknown_spec_lists_available():
         tool_policies.make("nope")
     msg = str(ei.value)
     assert "offline" in msg and "llm" in msg
+
+
+def test_empty_arg_instruction_routes_with_empty_string_arg():
+    # "calc:" 无参 -> 路由到 calc,arg 为空串(而非 None / 报错)。
+    action = SyntaxToolPolicy().decide("calc:", tools=("calc",), history=())
+    assert action == ToolCall(tool="calc", arg="")
+
+
+def test_arg_partitions_on_first_colon_only():
+    # arg 内含冒号:只在第一个冒号切分,其余原样留在 arg 中。
+    action = SyntaxToolPolicy().decide("calc: a:b", tools=("calc",), history=())
+    assert action == ToolCall(tool="calc", arg="a:b")
+
+
+def test_interleaved_prose_preserved_in_order_on_finish():
+    # 两条工具指令间穿插的正文按原序保留在收尾答案,末尾再附最后一步观测输出。
+    task = "intro line\ncalc: 1+1\nmiddle prose\ncalc: 2+2\noutro prose"
+    history = (Observation("calc", "1+1", "2"), Observation("calc", "2+2", "4"))
+    action = SyntaxToolPolicy().decide(task, tools=("calc",), history=history)
+    assert isinstance(action, Finish)
+    assert action.answer == "intro line\nmiddle prose\noutro prose\n4"

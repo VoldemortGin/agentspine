@@ -1,7 +1,7 @@
 """spineagent 自己的不变量(机制借 corespine.conformance,保证由本包绑定,ADR 0001 D6)。
 
 corespine 的 ConformanceSuite 只提供「实现 × 不变量」笛卡尔积的【机制】;具体保证在此绑定。
-本包绑三组:
+本包绑四组:
 
   agent_step  —— ①步必产出非空文本;②结果可溯源到产出它的 agent(provenance);
                  ③步级 trace 只记元数据,绝不泄露任务/输出正文(隐私安全,由 corespine 的
@@ -12,12 +12,22 @@ corespine 的 ConformanceSuite 只提供「实现 × 不变量」笛卡尔积的
                  且答案非空(循环可终止 + 产出非空);④decide 是纯函数(同输入恒同输出)。
                  不预设「任务文本如何被解读为工具调用」——那是各实现的事,其专属断言归各实现
                  的单元测试(见 tests/test_policy.py)。
+  llm_provider —— 【对外唯一规范 = OpenAI chat completions 形状】任何 LLMProvider 适配器(无论
+                 底层是 Anthropic / OpenAI / Cohere / Gemini / Bedrock)都必须把响应规整成同一份
+                 OpenAI ChatCompletion 形状:①chat() 返回 ChatCompletion、choices 非空、每个 choice
+                 带 message 与 finish_reason;②finish_reason 落在合法取值域(stop / tool_calls /
+                 length / content_filter);③usage 存在时三个 token 字段非负;④给了 tools 且模型
+                 发了 tool_calls 时,每条 tool_call 形状可往返(id / function.name 非空、
+                 function.arguments 是合法 JSON)。绝不预设具体文本/工具名——那是各适配器单测的事。
 
-任何号称 Agent / Tool / ToolPolicy 的实现都必须跑过对应那组——没过 conformance 的实现直接红,
-而非埋雷。
+任何号称 Agent / Tool / ToolPolicy / LLMProvider 的实现都必须跑过对应那组——没过 conformance 的
+实现直接红,而非埋雷。
 """
 
+import json
+
 from corespine.conformance.harness import InvariantPack
+from corespine.llm.provider import ChatCompletion, LLMProvider
 from corespine.observability.trace import FORBIDDEN_KEYS, InProcessPrivacyTraceSink
 
 from spineagent.agent.agent import Agent, AgentResult
@@ -123,4 +133,68 @@ POLICY_INVARIANTS: InvariantPack[ToolPolicy] = (
     .add("never_calls_an_unavailable_tool", _never_calls_an_unavailable_tool)
     .add("empty_tools_yields_nonempty_finish", _empty_tools_yields_nonempty_finish)
     .add("decide_is_pure", _decide_is_pure)
+)
+
+
+# ---- LLMProvider 不变量(对外唯一规范 = OpenAI ChatCompletion 形状)-----------------------
+# 不变量检查函数内部自构造 messages / tools(harness 工厂只给一个 provider 实例)。【实现中立】:
+# 只验任何 LLMProvider 都该守的「形状 / 取值域 / 非负 / 往返」属性,绝不预设具体文本或工具名——
+# 那是各适配器单测的事(见 tests/test_llm_provider.py / test_native_providers.py)。
+_FINISH_REASONS: frozenset[str] = frozenset({"stop", "tool_calls", "length", "content_filter"})
+_LLM_MESSAGES: list[dict[str, object]] = [{"role": "user", "content": "ping"}]
+_LLM_TOOL: dict[str, object] = {
+    "type": "function",
+    "function": {
+        "name": "calc",
+        "description": "算术",
+        "parameters": {"type": "object", "properties": {"x": {"type": "integer"}}},
+    },
+}
+
+
+def _chat_returns_chatcompletion_shape(provider: LLMProvider) -> None:
+    result = provider.chat(_LLM_MESSAGES)
+    assert isinstance(result, ChatCompletion), "chat() 必须返回 ChatCompletion"
+    assert result.choices, "ChatCompletion.choices 必须非空"
+    for choice in result.choices:
+        assert choice.message is not None, "每个 choice 必须带 message"
+        assert isinstance(choice.finish_reason, str), "每个 choice 必须带 finish_reason"
+
+
+def _finish_reason_in_allowed_domain(provider: LLMProvider) -> None:
+    # 不带 tools(可能出文本)与带 tools(可能出 tool_calls)两路都施压,覆盖更多 finish_reason 分支。
+    for tools in (None, [_LLM_TOOL]):
+        result = provider.chat(_LLM_MESSAGES, tools=tools)
+        for choice in result.choices:
+            assert choice.finish_reason in _FINISH_REASONS, (
+                f"finish_reason 越出合法取值域:{choice.finish_reason!r}"
+            )
+
+
+def _usage_fields_are_non_negative(provider: LLMProvider) -> None:
+    usage = provider.chat(_LLM_MESSAGES).usage
+    if usage is None:  # usage 可空(部分端点精简/流式),空则跳过(非负只约束存在时)
+        return
+    assert usage.prompt_tokens >= 0, "usage.prompt_tokens 不得为负"
+    assert usage.completion_tokens >= 0, "usage.completion_tokens 不得为负"
+    assert usage.total_tokens >= 0, "usage.total_tokens 不得为负"
+
+
+def _tool_calls_round_trip(provider: LLMProvider) -> None:
+    # 给了 tools 时,若模型发了 tool_calls,每条都必须形状完整且 arguments 是合法 JSON
+    # (能被下一轮原样喂回 = 往返)。模型【不】发 tool_calls 也合法(如离线 MockProvider),跳过即可。
+    result = provider.chat(_LLM_MESSAGES, tools=[_LLM_TOOL])
+    for choice in result.choices:
+        for call in choice.message.tool_calls or ():
+            assert call.id, "tool_call.id 必须非空"
+            assert call.function.name, "tool_call.function.name 必须非空"
+            json.loads(call.function.arguments)  # 非法 JSON 在此抛 → 不变量红
+
+
+LLM_INVARIANTS: InvariantPack[LLMProvider] = (
+    InvariantPack("llm_provider")
+    .add("chat_returns_chatcompletion_shape", _chat_returns_chatcompletion_shape)
+    .add("finish_reason_in_allowed_domain", _finish_reason_in_allowed_domain)
+    .add("usage_fields_are_non_negative", _usage_fields_are_non_negative)
+    .add("tool_calls_round_trip", _tool_calls_round_trip)
 )

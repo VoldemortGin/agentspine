@@ -34,7 +34,12 @@ from spineagent.agent.policy import (
     tool_policies,
 )
 from spineagent.agent.tool_using import ToolUsingAgent
-from spineagent.conformance import AGENT_INVARIANTS, POLICY_INVARIANTS, TOOL_INVARIANTS
+from spineagent.conformance import (
+    AGENT_INVARIANTS,
+    LLM_INVARIANTS,
+    POLICY_INVARIANTS,
+    TOOL_INVARIANTS,
+)
 from spineagent.llm.bedrock_provider import BedrockConverseProvider, load_boto3_sdk
 from spineagent.llm.cohere_provider import CohereProvider, load_cohere_sdk
 from spineagent.llm.errors import ProviderError
@@ -140,5 +145,6 @@ __all__ = [
     "AGENT_INVARIANTS",
     "TOOL_INVARIANTS",
     "POLICY_INVARIANTS",
+    "LLM_INVARIANTS",
     "__version__",
 ]
